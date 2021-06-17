@@ -1,0 +1,181 @@
+<?xml version="1.0"?>
+<implementation>
+  <settings>
+    <protocol>crlf</protocol>
+  </settings>
+  <functions>
+    ipaddr = ""
+	ipport = ""
+	ipesp = ""
+	busy = false
+
+	function getIP(lul_dev)
+  	  luup.variable_set("urn:ggfiplupro-com:serviceId:DreamColorESP1", "SingleFile", "01", lul_device)
+		luup.variable_set("urn:ggfiplupro-com:serviceId:DreamColorESP1", "ColorRGB", "1", lul_device)
+		luup.variable_set("urn:ggfiplupro-com:serviceId:DreamColorESP1", "ColorJS", "155,55,55", lul_device)
+		require "socket"
+		local s = socket.udp()
+		s:setpeername("74.125.115.104",80)
+		local ip, _ = s:getsockname()
+		luup.variable_set("urn:ggfiplupro-com:serviceId:DreamColorESP1", "VeraLocalIp", ip, lul_device)
+		local ip = luup.attr_get("ip", lul_dev)
+		local ip = string.gsub(ip," ","")
+		ipaddr, ipport = string.match(ip,"(%d+%.%d+%.%d+%.%d+)%:?(%d*)")
+			if (ipport == nil) or (#ipport == 0) or (ipport == undefined) then
+			ipport = "80"
+			luup.log("DreamColorESP1: Port not specified, " .. ipport .. " assumed.")
+		end
+		if (ipaddr == nil) or (#ipaddr == 0) or (ipaddr == undefined) then
+			luup.task("Invalid ip address:(default *controlleripaddres*:80)" .. ip, 2, "DreamColorESP1", -1)
+			 luup.log("DreamColorESP: ip address/port not set")
+			return false
+		else 
+			luup.attr_set("ip",ipaddr .. ":" .. ipport,lul_dev)
+			ipesp = luup.attr_get("ip", lul_dev)
+			luup.variable_set("urn:micasaverde-com:serviceId:HaDevice1", "CommFailure", "0", lul_dev)
+			return true
+		end
+	end
+	
+  </functions>
+  <startup>getIP</startup>
+  <actionList>
+    <action>
+      <serviceId>urn:upnp-org:serviceId:Dimming1</serviceId>
+      <name>SetLoadLevelTarget</name>
+      <job>
+	    if busy then luup.sleep(100) end
+		busy = true
+		luup.variable_set("urn:upnp-org:serviceId:Dimming1", "LoadLevelTarget", lul_settings.newLoadlevelTarget, lul_device)
+		luup.variable_set("urn:upnp-org:serviceId:Dimming1", "LoadLevelStatus", lul_settings.newLoadlevelTarget, lul_device)
+		local level = luup.variable_get("urn:upnp-org:serviceId:Dimming1", "LoadLevelTarget", lul_device)
+		local level = tonumber(level)
+		if level == 0 then
+				luup.variable_set("urn:upnp-org:serviceId:SwitchPower1", "Status", "0", lul_device)
+				luup.variable_set("urn:upnp-org:serviceId:Dimming1", "IconState", "0", lul_device)
+				luup.inet.wget(ipesp .. "/effect/start?effect=1&amp;brightness=0")
+				luup.sleep(oICT)
+				busy = false
+				return 4,nil
+			else
+				luup.variable_set("urn:upnp-org:serviceId:SwitchPower1", "Status", 1, lul_device)
+				luup.variable_set("urn:upnp-org:serviceId:Dimming1", "IconState", level, lul_device)
+				local effectnum = luup.variable_get("urn:ggfiplupro-com:serviceId:DreamColorESP1", "EffectSelect", lul_device)
+				local effect = tonumber(effectnum)
+				if effect > 1 then
+					luup.inet.wget(ipesp .. "/effect/start?effect="..effectnum.."&amp;brightness="..level)
+				else
+					luup.inet.wget(ipesp .. "/effect/start?effect=1&amp;brightness="..level)
+				end
+			end
+		luup.sleep(oICT)
+		busy = false
+		return 4,nil
+		</job>
+    </action>
+    
+	<action>
+      <serviceId>urn:upnp-org:serviceId:SwitchPower1</serviceId>
+      <name>SetTarget</name>
+      <job>
+		if busy then luup.sleep(100) end
+		busy = true
+		luup.variable_set("urn:upnp-org:serviceId:SwitchPower1", "Target", lul_settings.newTargetValue, lul_device)
+		luup.variable_set("urn:upnp-org:serviceId:SwitchPower1", "Status", lul_settings.newTargetValue, lul_device)
+		local Target = luup.variable_get("urn:upnp-org:serviceId:SwitchPower1", "Target", lul_device)
+		local Target = tonumber(Target)
+		if Target == 0 then
+			luup.call_action("urn:upnp-org:serviceId:Dimming1", "SetLoadLevelTarget", {["newLoadlevelTarget"] = "0"}, lul_device)
+			busy = false
+			return 4,nil
+		else
+		    luup.call_action("urn:upnp-org:serviceId:Dimming1", "SetLoadLevelTarget", {["newLoadlevelTarget"] = "40"}, lul_device)
+		end
+		busy = false
+		return 4,nil
+		</job>
+    </action>
+	
+	<action>
+      <serviceId>urn:ggfiplupro-com:serviceId:DreamColorESP1</serviceId>
+      <name>SetSpeedTarget</name>
+      <job>
+	    if busy then luup.sleep(100) end
+		busy = true
+	    luup.variable_set("urn:ggfiplupro-com:serviceId:DreamColorESP1", "SpeedTarget", lul_settings.newSpeedTarget, lul_device)
+		local speed = luup.variable_get("urn:ggfiplupro-com:serviceId:DreamColorESP1", "SpeedTarget", lul_device)
+		luup.variable_set("urn:ggfiplupro-com:serviceId:DreamColorESP1", "SpeedStatus", speed, lul_device)
+		local Speed =math.abs( tonumber(speed)*4)
+		luup.inet.wget(ipesp .. "/settings/speed?value="..Speed)
+		luup.sleep(oICT)
+		busy = false
+		return 4,nil
+	    </job>
+    </action>
+	
+	<action>
+      <serviceId>urn:ggfiplupro-com:serviceId:DreamColorESP1</serviceId>
+      <name>SetFileSelect</name>
+      <job>
+		if busy then luup.sleep(100) end
+		busy = true
+	    luup.inet.wget(ipesp .. "/settings/poweroff")
+		luup.sleep(oICT)
+		busy = false
+		return 4,nil
+	  </job>
+    </action>
+	
+	<action>
+      <serviceId>urn:ggfiplupro-com:serviceId:DreamColorESP1</serviceId>
+      <name>SetEffectSelect</name>
+      <job>
+	    if busy then luup.sleep(100) end
+		busy = true
+		luup.variable_set("urn:ggfiplupro-com:serviceId:DreamColorESP1", "EffectSelect", lul_settings.newEffectSelect, lul_device)
+		local EffectSelect = luup.variable_get("urn:ggfiplupro-com:serviceId:DreamColorESP1", "EffectSelect", lul_device)
+		local Effect = tonumber(EffectSelect)
+		local color = luup.variable_get("urn:ggfiplupro-com:serviceId:DreamColorESP1", "ColorJS", lul_device)
+		if (Effect == 0) or (Effect == 1) then
+			luup.inet.wget(ipesp .. "/effect/stop")
+			luup.sleep(500)
+			luup.inet.wget(ipesp .. "/effect/start?effect=1&amp;colorrgb="..color.."&amp;brightness=40")
+	   else
+			luup.inet.wget(ipesp .. "/effect/stop")
+			luup.sleep(500)
+			luup.inet.wget(ipesp .. "/effect/start?effect="..Effect)
+	   end
+		luup.sleep(oICT)
+		busy = false
+		return 4,nil
+	  </job>
+    </action>
+	
+	<action>
+      <serviceId>urn:micasaverde-com:serviceId:Color1</serviceId>
+      <name>SetColorRGB</name>
+       <job>
+	    if busy then luup.sleep(100) end
+		busy = true
+		luup.variable_set("urn:micasaverde-com:serviceId:Color1", "ColorRGBTarget", lul_settings.newColorRGBTarget, lul_device)
+		luup.variable_set("urn:micasaverde-com:serviceId:Color1", "CurrentColor", lul_settings.newColorRGBTarget, lul_device)
+		local string = luup.variable_get("urn:micasaverde-com:serviceId:Color1", "CurrentColor", lul_device)
+		local string = string:gsub('%R','')
+		local string = string:gsub('%G','')
+		local colorjs = string:gsub('%B','')
+		luup.variable_set("urn:ggfiplupro-com:serviceId:DreamColorESP1", "ColorJS", colorjs, lul_device)
+		local level = luup.variable_get("urn:upnp-org:serviceId:Dimming1", "LoadLevelTarget", lul_device)
+		local effectnum = luup.variable_get("urn:ggfiplupro-com:serviceId:DreamColorESP1", "EffectSelect", lul_device)
+		local effect = tonumber(effectnum)
+		if (effect > 1) then
+			luup.inet.wget(ipesp .. "/effect/start?effect="..effect.."&amp;colorrgb="..colorjs.."&amp;brightness="..level)
+		else
+			luup.inet.wget(ipesp .. "/effect/start?effect=1&amp;colorrgb="..colorjs.."&amp;brightness="..level)
+		end
+		luup.sleep(oICT)
+		busy = false
+		return 4,nil
+	   </job>
+    </action>
+    </actionList>
+</implementation>
